@@ -22,18 +22,31 @@ def nnue_index(king_sq, piece_sq, piece_type, color):
 
 class IncrementalNNUE:
 
-    def __init__(self, seed=1):
+    def __init__(self):
 
-        rng = np.random.default_rng(seed)
-
-        self.W1 = rng.standard_normal((FEATURES, HIDDEN), dtype=np.float32) * 0.01
+        # üres init (nem random!)
+        self.W1 = np.zeros((FEATURES, HIDDEN), dtype=np.float32)
         self.B1 = np.zeros(HIDDEN, dtype=np.float32)
 
-        self.W2 = rng.standard_normal(HIDDEN, dtype=np.float32) * 0.01
+        self.W2 = np.zeros(HIDDEN, dtype=np.float32)
         self.B2 = 0.0
 
         self.acc = None
         self.stack = []
+
+    # ================= LOAD =================
+
+    def load(self, path="nnue_weights.npz"):
+
+        data = np.load(path)
+
+        self.W1 = data["W1"]
+        self.B1 = data["B1"]
+        self.W2 = data["W2"]
+        self.B2 = float(data["B2"])
+
+        print("NNUE weights loaded!")
+    
 
     # ================= FULL REBUILD =================
 
@@ -64,7 +77,7 @@ class IncrementalNNUE:
 
         piece = board.piece_at(move.from_square)
 
-        # ===== KING MOVE → FULL REBUILD =====
+        # KING MOVE → FULL REBUILD
         if piece.piece_type == chess.KING:
             board.push(move)
             self.rebuild(board)
@@ -74,7 +87,7 @@ class IncrementalNNUE:
         wk = board.king(chess.WHITE)
         bk = board.king(chess.BLACK)
 
-        # ===== REMOVE FROM OLD SQUARE =====
+        # REMOVE FROM OLD SQUARE
         self.acc -= self.W1[
             nnue_index(wk, move.from_square,
                        piece.piece_type, piece.color)
@@ -84,10 +97,9 @@ class IncrementalNNUE:
                        piece.piece_type, piece.color)
         ]
 
-        # ===== CAPTURE =====
+        # CAPTURE
         if board.is_capture(move):
 
-            # EN PASSANT
             if board.is_en_passant(move):
 
                 if piece.color == chess.WHITE:
@@ -102,11 +114,11 @@ class IncrementalNNUE:
                 cap_sq = move.to_square
                 captured_piece = board.piece_at(cap_sq)
 
-                if captured_piece is None:
-                    cap_sq = None
-                else:
+                if captured_piece is not None:
                     captured_type = captured_piece.piece_type
                     captured_color = captured_piece.color
+                else:
+                    cap_sq = None
 
             if cap_sq is not None:
 
@@ -121,7 +133,7 @@ class IncrementalNNUE:
                                captured_color)
                 ]
 
-        # ===== ADD TO NEW SQUARE =====
+        # ADD TO NEW SQUARE
         self.acc += self.W1[
             nnue_index(wk, move.to_square,
                        piece.piece_type, piece.color)
@@ -131,10 +143,9 @@ class IncrementalNNUE:
                        piece.piece_type, piece.color)
         ]
 
-        # ===== PROMOTION =====
+        # PROMOTION
         if move.promotion:
 
-            # remove pawn feature
             self.acc -= self.W1[
                 nnue_index(wk, move.to_square,
                            chess.PAWN,
@@ -146,7 +157,6 @@ class IncrementalNNUE:
                            piece.color)
             ]
 
-            # add promoted feature
             self.acc += self.W1[
                 nnue_index(wk, move.to_square,
                            move.promotion,
@@ -173,9 +183,11 @@ class IncrementalNNUE:
         h = np.maximum(self.acc, 0)
         score = float(h @ self.W2 + self.B2)
 
-        return int(score)
+        # scaling (nagyon fontos!)
+        return int(score * 100)
 
 
 # ================= GLOBAL =================
 
 nnue = IncrementalNNUE()
+nnue.load("nnue_weights.npz")

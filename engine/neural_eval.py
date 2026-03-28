@@ -1,8 +1,7 @@
 import chess
 import numpy as np
 
-# nagyon gyors "NN-szerű" eval
-# (material + activity blend)
+
 
 PIECE_VALUES = np.array([0, 100, 320, 330, 500, 900, 0])
 

@@ -1,7 +1,7 @@
+from tracemalloc import start
 import chess
 import time
 from concurrent.futures import ThreadPoolExecutor
-
 from .constants import *
 from .evaluation import evaluate
 from .move_order import ordered_moves
@@ -9,6 +9,12 @@ from .neural_eval import neural_eval
 from .nnue import nnue
 import chess.syzygy
 import chess.polyglot
+import time
+
+ROOT_START = 0
+ROOT_TIME = 0
+STOP_SEARCH = False
+NODES = 0
 
 
 BOOK1 = chess.polyglot.open_reader(
@@ -63,8 +69,15 @@ def see(board, move):
 
 def quiescence(board, alpha, beta):
 
-    global NODES
+    global NODES, STOP_SEARCH
     NODES += 1
+
+    if NODES & 1023 == 0:
+        if time.time() - ROOT_START > ROOT_TIME:
+            STOP_SEARCH = True
+
+    if STOP_SEARCH:
+        return evaluate(board)
 
     # ===== TABLEBASE DRAW CUTOFF =====
     if len(board.piece_map()) <= 5:
@@ -137,14 +150,21 @@ def search(board, depth, alpha, beta, ply):
 
     global STOP_SEARCH, NODES
 
-    # ===== safe stop
+    
+    
+
+    # ===== HARD TIME CHECK (node based) =====
+    NODES += 1
+
+    if NODES & 1023 == 0:
+        if time.time() - ROOT_START > ROOT_TIME:
+            STOP_SEARCH = True
+
     if STOP_SEARCH:
         return evaluate(board)
     
     if depth <= 2 and not board.is_check():
         return (evaluate(board) + nnue.evaluate()) // 2
-
-    NODES += 1
 
         # ===== TABLEBASE CUTOFF =====
     if len(board.piece_map()) <= 5:
@@ -337,10 +357,16 @@ def find_best_move(board, max_time):
         except:
             pass
 
-    global STOP_SEARCH, NODES
-    nnue.rebuild(board)
+    global STOP_SEARCH, NODES, ROOT_START, ROOT_TIME
+
+    ROOT_START = time.time()
+    ROOT_TIME = max_time*2
     STOP_SEARCH = False
+    NODES = 0
+
+    nnue.rebuild(board)
     start = time.time()
+
 
     best_move = None
     last_score = 0
@@ -350,12 +376,18 @@ def find_best_move(board, max_time):
 
     while True:
 
-        if time.time() - start > max_time:
+        if STOP_SEARCH:
+            return best_move
+
+        if time.time() -   start > max_time:
             break
 
         best_score = -INF
 
         for move in moves:
+
+            if STOP_SEARCH:
+                break
 
             nnue.push(board, move)
             board.push(move)
